@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Chiang Mai Forest AGB & CO₂ — Geospatial Explorer</title>
+<meta name="description" content="ระบบสำรวจข้อมูลภูมิสารสนเทศมวลชีวภาพและการกักเก็บคาร์บอน จังหวัดเชียงใหม่" />
+
+<!-- Fonts: Fraunces (display, scientific journal feel) + IBM Plex Sans (body) + IBM Plex Mono (data) -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=IBM+Plex+Sans+Thai:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<!-- ────────── Header ────────── -->
+<header class="site-header">
+  <div class="header-inner">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="36" height="36">
+          <path d="M16 2 L26 12 L22 12 L22 22 L18 22 L18 16 L14 16 L14 22 L10 22 L10 12 L6 12 Z" fill="currentColor"/>
+          <rect x="14" y="22" width="4" height="6" fill="currentColor" opacity="0.6"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-eyebrow">Chiang Mai · Remote Sensing Study</div>
+        <h1 class="brand-title">Forest <em>Biomass</em> &amp; <em>Carbon</em> Atlas</h1>
+      </div>
+    </div>
+    <nav class="header-nav">
+      <a href="#map">Map</a>
+      <a href="#stats">Statistics</a>
+      <a href="#charts">Analysis</a>
+      <a href="#data">Data</a>
+      <a href="#method">Method</a>
+    </nav>
+  </div>
+</header>
+
+<!-- ────────── Hero ────────── -->
+<section class="hero">
+  <div class="hero-grid">
+    <div class="hero-text">
+      <div class="hero-eyebrow">An interactive geospatial study · 2019 — 2023</div>
+      <h2 class="hero-title">
+        Mapping the <em>living biomass</em><br/>
+        of Northern Thailand's forests.
+      </h2>
+      <p class="hero-lede">
+        ระบบสำรวจข้อมูลภูมิสารสนเทศแบบปฏิสัมพันธ์ แสดงปริมาณมวลชีวภาพเหนือดิน (AGB)
+        และการกักเก็บคาร์บอนไดออกไซด์ (CO₂) ในพื้นที่ป่าไม้จังหวัดเชียงใหม่
+        ระหว่างปี พ.ศ. 2562 – 2566 ผ่านการประมวลผลด้วยภาพถ่ายดาวเทียมและ Machine Learning
+      </p>
+      <div class="hero-cta">
+        <a class="btn-primary" href="#map">Explore the map →</a>
+        <a class="btn-ghost" href="#data">Download data</a>
+      </div>
+    </div>
+    <div class="hero-stats" id="hero-stats">
+      <!-- เติมจาก JS -->
+      <div class="stat-loading">Loading…</div>
+    </div>
+  </div>
+  <div class="hero-divider"><span>scroll</span></div>
+</section>
+
+<!-- ────────── Map Section ────────── -->
+<section id="map" class="map-section">
+  <div class="section-header">
+    <div class="section-num">01</div>
+    <div>
+      <h3 class="section-title">Interactive Atlas</h3>
+      <p class="section-sub">เลือกชั้นข้อมูลและเปรียบเทียบช่วงเวลา · Click on any feature to inspect</p>
+    </div>
+  </div>
+
+  <div class="map-wrap">
+    <!-- ── Sidebar (controls) ── -->
+    <aside class="map-side">
+      <!-- Year toggle -->
+      <div class="ctrl-block">
+        <div class="ctrl-label">Year</div>
+        <div class="seg" id="year-seg">
+          <button data-year="2019" class="seg-on">พ.ศ. 2562</button>
+          <button data-year="2023">พ.ศ. 2566</button>
+          <button data-year="compare">เทียบ</button>
+        </div>
+      </div>
+
+      <!-- Layer toggles -->
+      <div class="ctrl-block">
+        <div class="ctrl-label">Data Layers</div>
+        <ul class="layer-list" id="layer-list">
+          <li>
+            <label class="layer-row">
+              <input type="checkbox" data-layer="agb" />
+              <span class="layer-swatch agb"></span>
+              <span class="layer-name">AGB <small>มวลชีวภาพ</small></span>
+            </label>
+          </li>
+          <li>
+            <label class="layer-row">
+              <input type="checkbox" data-layer="co2" />
+              <span class="layer-swatch co2"></span>
+              <span class="layer-name">CO₂ <small>การกักเก็บคาร์บอน</small></span>
+            </label>
+          </li>
+          <li>
+            <label class="layer-row">
+              <input type="checkbox" data-layer="forestmap" checked />
+              <span class="layer-swatch forestmap"></span>
+              <span class="layer-name">Forest Map <small>การจำแนกพื้นที่ป่า</small></span>
+            </label>
+          </li>
+          <li>
+            <label class="layer-row">
+              <input type="checkbox" data-layer="change" />
+              <span class="layer-swatch change"></span>
+              <span class="layer-name">Change <small>การเปลี่ยนแปลง 2019→2023</small></span>
+            </label>
+          </li>
+          <li class="layer-divider"></li>
+          <li>
+            <label class="layer-row">
+              <input type="checkbox" data-layer="forest-vector" />
+              <span class="layer-swatch vector-forest"></span>
+              <span class="layer-name">Forest Polygons <small>ขอบเขตป่า (vector)</small></span>
+            </label>
+          </li>
+          <li>
+            <label class="layer-row">
+              <input type="checkbox" data-layer="points" />
+              <span class="layer-swatch points"></span>
+              <span class="layer-name">Sample Points <small>จุดตัวอย่าง</small></span>
+            </label>
+          </li>
+        </ul>
+      </div>
+
+      <!-- Opacity -->
+      <div class="ctrl-block">
+        <div class="ctrl-label">Overlay opacity</div>
+        <input type="range" min="0" max="100" value="75" id="opacity-slider" class="slider" />
+        <div class="ctrl-val"><span id="opacity-val">75</span>%</div>
+      </div>
+
+      <!-- Basemap -->
+      <div class="ctrl-block">
+        <div class="ctrl-label">Basemap</div>
+        <div class="seg seg-sm" id="basemap-seg">
+          <button data-basemap="carto" class="seg-on">Light</button>
+          <button data-basemap="dark">Dark</button>
+          <button data-basemap="sat">Satellite</button>
+          <button data-basemap="topo">Terrain</button>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      <div class="ctrl-block ctrl-legend" id="legend-block">
+        <div class="ctrl-label">Legend</div>
+        <div id="legend-content" class="legend-content">
+          <div class="legend-empty">เลือกชั้นข้อมูลเพื่อแสดงคำอธิบายสัญลักษณ์</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── Map canvas ── -->
+    <div class="map-canvas-wrap">
+      <div id="leaflet-map"></div>
+
+      <!-- Compare slider (visible only in compare mode) -->
+      <div id="compare-handle" class="compare-handle" hidden>
+        <div class="compare-bar"></div>
+        <div class="compare-knob">
+          <svg width="16" height="16" viewBox="0 0 16 16"><path d="M6 4 L2 8 L6 12 M10 4 L14 8 L10 12" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+        </div>
+        <div class="compare-label compare-label-left">2019</div>
+        <div class="compare-label compare-label-right">2023</div>
+      </div>
+
+      <!-- Floating feature info panel -->
+      <div id="info-panel" class="info-panel" hidden>
+        <button class="info-close" id="info-close" aria-label="close">×</button>
+        <div class="info-eyebrow" id="info-eyebrow">District</div>
+        <div class="info-title" id="info-title">—</div>
+        <div class="info-body" id="info-body"></div>
+      </div>
+
+      <!-- Map attribution overlay -->
+      <div class="map-meta">
+        <div>Lat <span id="meta-lat">—</span> · Lng <span id="meta-lng">—</span></div>
+        <div>Zoom <span id="meta-zoom">—</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── Statistics Section ────────── -->
+<section id="stats" class="stats-section">
+  <div class="section-header">
+    <div class="section-num">02</div>
+    <div>
+      <h3 class="section-title">Province at a Glance</h3>
+      <p class="section-sub">ภาพรวมจังหวัดเชียงใหม่ · 2019 vs 2023</p>
+    </div>
+  </div>
+
+  <div class="big-numbers" id="big-numbers">
+    <!-- generated by JS -->
+  </div>
+
+  <div class="districts-table-wrap">
+    <div class="districts-header">
+      <h4>By District · เรียงตามพื้นที่ป่า 2023</h4>
+      <div class="search-row">
+        <input type="text" id="district-search" placeholder="Search district…" class="search-input" />
+      </div>
+    </div>
+    <div class="districts-scroll">
+      <table class="districts-table" id="districts-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>District</th>
+            <th class="num">Area (ha)</th>
+            <th class="num">Forest 2019 (ha)</th>
+            <th class="num">Forest 2023 (ha)</th>
+            <th class="num">Δ</th>
+            <th class="num">CO₂ 2023 (Mg)</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── Charts Section ────────── -->
+<section id="charts" class="charts-section">
+  <div class="section-header">
+    <div class="section-num">03</div>
+    <div>
+      <h3 class="section-title">Analysis &amp; Validation</h3>
+      <p class="section-sub">ความสำคัญของตัวแปรและความแม่นยำของแบบจำลอง</p>
+    </div>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h4>Forest Area by Type</h4>
+        <span class="chart-card-sub">เปรียบเทียบ 2019 vs 2023</span>
+      </div>
+      <div class="chart-box"><canvas id="chart-forest-type"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h4>AGB by Forest Type</h4>
+        <span class="chart-card-sub">Mg/ha</span>
+      </div>
+      <div class="chart-box"><canvas id="chart-agb-type"></canvas></div>
+    </div>
+
+    <div class="chart-card chart-card-wide">
+      <div class="chart-card-head">
+        <h4>Feature Importance · AGB Regressor</h4>
+        <span class="chart-card-sub">Top 10 predictors (%)</span>
+      </div>
+      <div class="chart-box chart-box-tall"><canvas id="chart-feat-reg"></canvas></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h4>Model Performance</h4>
+        <span class="chart-card-sub">Regression validation</span>
+      </div>
+      <div class="metric-grid" id="metric-grid"></div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-card-head">
+        <h4>Detection Accuracy</h4>
+        <span class="chart-card-sub">By forest type</span>
+      </div>
+      <div class="metric-grid" id="accuracy-grid"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── Data Section ────────── -->
+<section id="data" class="data-section">
+  <div class="section-header">
+    <div class="section-num">04</div>
+    <div>
+      <h3 class="section-title">Download Data</h3>
+      <p class="section-sub">ดาวน์โหลดข้อมูล raster ขนาดใหญ่จาก Google Drive</p>
+    </div>
+  </div>
+
+  <div class="data-grid">
+    <a class="data-card" href="https://drive.google.com/file/d/1UBUZszYEfrUIeIgr34RthmoT87DR2Nd4/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">Change Detection</div>
+      <div class="data-card-name">ChiangMai_Change.tif</div>
+      <div class="data-card-desc">แผนที่การเปลี่ยนแปลงพื้นที่ป่า 2019–2023</div>
+      <div class="data-card-meta">5.95 GB · GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/10URgJdAYk1yPGfigIrXRgD06QqpEQiLX/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">CO₂ 2023</div>
+      <div class="data-card-name">CO2_2023.tif</div>
+      <div class="data-card-desc">การกักเก็บคาร์บอนไดออกไซด์ ปี 2023</div>
+      <div class="data-card-meta">582 MB · GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/11xuYqbQ54EAvNZD9GWXps93-Gg2Qe_is/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">CO₂ 2019</div>
+      <div class="data-card-name">CO2_2019.tif</div>
+      <div class="data-card-desc">การกักเก็บคาร์บอนไดออกไซด์ ปี 2019</div>
+      <div class="data-card-meta">523 MB · GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/1Nk0Wr6uWpT9yEF5tnLHkfCaiYdz4hB_P/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">AGB 2023</div>
+      <div class="data-card-name">AGB_2023.tif</div>
+      <div class="data-card-desc">มวลชีวภาพเหนือดิน ปี 2023</div>
+      <div class="data-card-meta">584 MB · GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/1oCA0JKsRe1-DzF2mZrCNZQGoKbZdc_BE/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">AGB 2019</div>
+      <div class="data-card-name">AGB_2019.tif</div>
+      <div class="data-card-desc">มวลชีวภาพเหนือดิน ปี 2019</div>
+      <div class="data-card-meta">525 MB · GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/1ExodmleTPzml5KFmn_rkHfKPwSm7kLFQ/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">Forest Map 2023</div>
+      <div class="data-card-name">Forest_Map_2023.tif</div>
+      <div class="data-card-desc">แผนที่การจำแนกป่าไม้ ปี 2023</div>
+      <div class="data-card-meta">GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/1vq8KZhEN5Z2qzELDSi2S1U66RHxgVKkM/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">Forest Map 2019</div>
+      <div class="data-card-name">Forest_Map_2019.tif</div>
+      <div class="data-card-desc">แผนที่การจำแนกป่าไม้ ปี 2019</div>
+      <div class="data-card-meta">GeoTIFF</div>
+    </a>
+
+    <a class="data-card" href="https://drive.google.com/file/d/1FGLiSjmhHhU03aBzA0wMI13R_f7N0hhW/view?usp=drive_link" target="_blank" rel="noopener">
+      <div class="data-card-tag">Elevation</div>
+      <div class="data-card-name">dem.tif</div>
+      <div class="data-card-desc">Digital Elevation Model</div>
+      <div class="data-card-meta">GeoTIFF</div>
+    </a>
+
+    <a class="data-card data-card-repo" href="https://github.com/Dante2907/miniproject_agb_co2" target="_blank" rel="noopener">
+      <div class="data-card-tag">Repository</div>
+      <div class="data-card-name">All CSV + Shapefiles</div>
+      <div class="data-card-desc">ข้อมูลสถิติและขอบเขตทั้งหมด</div>
+      <div class="data-card-meta">GitHub · Dante2907</div>
+    </a>
+  </div>
+</section>
+
+<!-- ────────── Method Section ────────── -->
+<section id="method" class="method-section">
+  <div class="section-header">
+    <div class="section-num">05</div>
+    <div>
+      <h3 class="section-title">Methodology</h3>
+      <p class="section-sub">ระเบียบวิธีวิจัย</p>
+    </div>
+  </div>
+
+  <div class="method-grid">
+    <div class="method-step">
+      <div class="step-num">i</div>
+      <h4>Data Acquisition</h4>
+      <p>ภาพถ่ายดาวเทียม Sentinel-2 (optical) และ Sentinel-1 (SAR) ปี 2019 และ 2023 ผนวกกับ DEM และจุดตัวอย่างภาคสนาม</p>
+    </div>
+    <div class="method-step">
+      <div class="step-num">ii</div>
+      <h4>Feature Engineering</h4>
+      <p>คำนวณดัชนีพืชพรรณ (NDVI, EVI, SAVI, IPVI, TVI, RVI, DVI) และดึงค่าทางภูมิประเทศ (slope, elevation) รวม 15 ตัวแปร</p>
+    </div>
+    <div class="method-step">
+      <div class="step-num">iii</div>
+      <h4>Classification &amp; Regression</h4>
+      <p>Random Forest จำแนกพื้นที่ป่า/ไม่ใช่ป่า และประมาณค่า AGB ด้วย regressor ที่ผ่านการ tune hyperparameter</p>
+    </div>
+    <div class="method-step">
+      <div class="step-num">iv</div>
+      <h4>Validation</h4>
+      <p>70/30 holdout, K-fold cross-validation และเปรียบเทียบกับข้อมูล Land Use Map ของกรมป่าไม้</p>
+    </div>
+    <div class="method-step">
+      <div class="step-num">v</div>
+      <h4>Carbon Conversion</h4>
+      <p>คำนวณ CO₂ จาก AGB ด้วยอัตราส่วน 0.47 (carbon fraction) × 3.67 (CO₂/C ratio) ตาม IPCC guidelines</p>
+    </div>
+    <div class="method-step">
+      <div class="step-num">vi</div>
+      <h4>Uncertainty Analysis</h4>
+      <p>คำนวณ standard error, 95% confidence interval และ coefficient of variation ในระดับ pixel และจังหวัด</p>
+    </div>
+  </div>
+</section>
+
+<!-- ────────── Footer ────────── -->
+<footer class="site-footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <div class="footer-title">Chiang Mai Forest Atlas</div>
+      <div class="footer-sub">A geospatial study · 2024 — 2025</div>
+    </div>
+    <div class="footer-links">
+      <a href="https://github.com/Dante2907/miniproject_agb_co2" target="_blank" rel="noopener">GitHub</a>
+      <a href="mailto:teetawats@gmail.com">Contact</a>
+      <a href="#method">Methodology</a>
+    </div>
+    <div class="footer-meta">
+      Data © 2025 · Source: Sentinel-1/2, DEM SRTM · Code: MIT-style use
+    </div>
+  </div>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>
