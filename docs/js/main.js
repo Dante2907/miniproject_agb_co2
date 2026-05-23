@@ -7,7 +7,11 @@ const state = {
   year: '2019',
   basemap: 'carto',
   opacity: 0.75,
+  metric: 'forest_2023_ha',          // ← เพิ่มบรรทัดนี้
   layers: {
+    province: true,                  // ← เพิ่ม
+    amphoe: true,                    // ← เพิ่ม
+    'amphoe-choropleth': false,      // ← เพิ่ม
     agb: false,
     co2: false,
     forestmap: true,
@@ -114,6 +118,46 @@ function initMap() {
 }
 
 function initGeoJSONLayers() {
+  // Province boundary
+  fetch('data/geojson/province.geojson')
+    .then(r => r.json())
+    .then(geo => {
+      geojsonLayers.province = L.geoJSON(geo, {
+        style: { color: '#25431a', weight: 2.5, fillOpacity: 0, dashArray: '6,4', interactive: false }
+      });
+      if (state.layers.province) geojsonLayers.province.addTo(map);
+    })
+    .catch(err => console.warn('province.geojson load failed', err));
+
+  // District (amphoe) boundary + interactivity
+  fetch('data/geojson/amphoe.geojson')
+    .then(r => r.json())
+    .then(geo => {
+      geojsonLayers.amphoe = L.geoJSON(geo, {
+        style: feat => amphoeStyle(feat),
+        onEachFeature: (feat, layer) => {
+          const p = feat.properties;
+          // Hover tooltip — ชื่ออำเภอ
+          layer.bindTooltip(
+            `<strong>${p.AP_EN}</strong><br><span style="opacity:.7">${p.AP_TN || ''}</span>`,
+            { sticky: true, direction: 'top', className: 'amphoe-tooltip' }
+          );
+          // Hover highlight
+          layer.on('mouseover', e => {
+            e.target.setStyle({ weight: 2.5, color: '#0d1c09' });
+            e.target.bringToFront();
+          });
+          layer.on('mouseout', e => {
+            geojsonLayers.amphoe.resetStyle(e.target);
+          });
+          // Click → info panel
+          layer.on('click', () => showAmphoeInfo(p));
+        }
+      });
+      if (state.layers.amphoe) geojsonLayers.amphoe.addTo(map);
+    })
+    .catch(err => console.warn('amphoe.geojson load failed', err));
+
   // Forest vector polygons - dissolved
   fetch('data/geojson/forest_dissolved.geojson')
     .then(r => r.json())
@@ -167,12 +211,6 @@ function initGeoJSONLayers() {
 }
 
 // ── Raster overlays (PNG) ───────────────────────────────
-// When user adds PNG overlays in data/overlays/, this picks them up.
-// File naming convention:
-//   AGB_2019.png, AGB_2023.png
-//   CO2_2019.png, CO2_2023.png
-//   ForestMap_2019.png, ForestMap_2023.png
-//   Change.png
 function getOverlayURL(layerKey, year) {
   const map = {
     'agb': `AGB_${year}.png`,
@@ -218,10 +256,10 @@ function applyLayers() {
   });
 
   // Vector layers
-  ['forest-vector', 'points'].forEach(key => {
+  ['province', 'amphoe', 'forest-vector', 'points'].forEach(key => {
     const layer = geojsonLayers[key];
     if (!layer) return;
-    if (state.layers[key]) {
+    if (state.layers[key] || (key === 'amphoe' && state.layers['amphoe-choropleth'])) {
       if (!map.hasLayer(layer)) layer.addTo(map);
     } else {
       if (map.hasLayer(layer)) map.removeLayer(layer);
@@ -251,6 +289,23 @@ function updateLegend() {
     if (key === 'points') return legendCategorical('Sample Points', [
       ['#2c6e8f', 'Forest'], ['#b85432', 'Non-forest']
     ]);
+    if (key === 'amphoe-choropleth') {
+      const labels = {
+        'forest_2023_ha':       'Forest area 2023 (ha)',
+        'mean_agb_2023_Mg_ha':  'Mean AGB 2023 (Mg/ha)',
+        'mean_co2_2023_Mg_ha':  'Mean CO₂ 2023 (Mg/ha)',
+        'delta_forest_pct':     'ΔForest 2019→2023 (%)'
+      };
+      const [lo, hi] = getMetricRange(state.metric);
+      if (state.metric.startsWith('delta_')) {
+        const m = Math.max(Math.abs(lo), Math.abs(hi));
+        return legendGradient(labels[state.metric], '#b85432', '#25431a',
+          `−${m.toFixed(1)}`, `+${m.toFixed(1)}`);
+      }
+      return legendGradient(labels[state.metric], '#f3f7f2', '#0d1c09',
+        fmt.int(lo), fmt.int(hi));
+    }
+    if (key === 'province' || key === 'amphoe') return ''; // เส้นขอบเปล่าๆ ไม่ต้องมี legend
     return '';
   }).filter(Boolean);
   el.innerHTML = legends.join('<div style="height:8px"></div>');
@@ -297,7 +352,31 @@ function initControls() {
   document.querySelectorAll('#layer-list input[type="checkbox"]').forEach(cb => {
     cb.addEventListener('change', () => {
       state.layers[cb.dataset.layer] = cb.checked;
+
+      // โชว์/ซ่อน metric picker เมื่อเปิด choropleth
+      if (cb.dataset.layer === 'amphoe-choropleth') {
+        document.getElementById('choropleth-ctrl').hidden = !cb.checked;
+        // ถ้าเปิด choropleth ต้องเปิด amphoe layer ด้วย
+        if (cb.checked) {
+          state.layers.amphoe = true;
+          const ampCb = document.querySelector('#layer-list input[data-layer="amphoe"]');
+          if (ampCb) ampCb.checked = true;
+        }
+      }
+
       applyLayers();
+      if (geojsonLayers.amphoe) geojsonLayers.amphoe.setStyle(amphoeStyle);
+      updateLegend();
+    });
+  });
+
+  // Metric picker
+  document.querySelectorAll('#metric-seg button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#metric-seg button').forEach(b => b.classList.remove('seg-on'));
+      btn.classList.add('seg-on');
+      state.metric = btn.dataset.metric;
+      if (geojsonLayers.amphoe) geojsonLayers.amphoe.setStyle(amphoeStyle);
       updateLegend();
     });
   });
@@ -561,4 +640,79 @@ function renderMetrics() {
       <div class="metric-cell-unit">detection rate</div>
     </div>
   `).join('');
+}
+
+// ════════════════════════════════════════════════════════
+// NEW FUNCTIONS: AMPHOE CHOROPLETH & INFO
+// ════════════════════════════════════════════════════════
+
+// ── Amphoe styling (choropleth or plain) ──────────────
+function amphoeStyle(feat) {
+  if (state.layers['amphoe-choropleth']) {
+    const v = feat.properties[state.metric];
+    return {
+      color: '#4a7339',
+      weight: 0.8,
+      fillColor: choroplethColor(v),
+      fillOpacity: 0.78
+    };
+  }
+  return {
+    color: '#4a7339',
+    weight: 1,
+    fillColor: '#98b48a',
+    fillOpacity: 0.08    // โปร่งเกือบสุด เห็นแค่เส้นขอบ
+  };
+}
+
+// ── Color ramp for choropleth ─────────────────────────
+function choroplethColor(value) {
+  if (value == null || isNaN(value)) return '#e8e4d2';
+  const range = getMetricRange(state.metric);
+  const ramp = state.metric.startsWith('delta_')
+    ? ['#b85432', '#d7942b', '#fdfcf7', '#98b48a', '#25431a']   // diverging
+    : ['#f3f7f2', '#c6d6bc', '#6a9059', '#355a28', '#0d1c09'];  // sequential green
+
+  let t;
+  if (state.metric.startsWith('delta_')) {
+    const m = Math.max(Math.abs(range[0]), Math.abs(range[1]));
+    t = (value + m) / (2 * m);
+  } else {
+    t = (value - range[0]) / (range[1] - range[0]);
+  }
+  t = Math.max(0, Math.min(1, t));
+  const seg = t * (ramp.length - 1);
+  const i = Math.floor(seg);
+  if (i >= ramp.length - 1) return ramp[ramp.length - 1];
+  return lerpHex(ramp[i], ramp[i + 1], seg - i);
+}
+
+function lerpHex(a, b, t) {
+  const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16);
+  const ar = ah >> 16, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+  const br = bh >> 16, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+  return `rgb(${Math.round(ar + (br - ar) * t)},${Math.round(ag + (bg - ag) * t)},${Math.round(ab + (bb - ab) * t)})`;
+}
+
+function getMetricRange(metric) {
+  const vals = state.data.stats.districts
+    .map(d => d[metric])
+    .filter(v => v != null && !isNaN(v));
+  return [Math.min(...vals), Math.max(...vals)];
+}
+
+// ── Click an amphoe → fill info panel ─────────────────
+function showAmphoeInfo(p) {
+  const dPct = p.delta_forest_pct;
+  const dSign = dPct >= 0 ? '+' : '';
+  showInfoPanel('District · อำเภอ', `${p.AP_EN}`, [
+    ['Thai name',        p.AP_TN || '—'],
+    ['Total area',       fmt.ha(p.total_area_ha)],
+    ['Forest 2019',      fmt.ha(p.forest_2019_ha)],
+    ['Forest 2023',      fmt.ha(p.forest_2023_ha)],
+    ['ΔForest',          `${dSign}${dPct.toFixed(1)}%`],
+    ['Mean AGB 2023',    `${p.mean_agb_2023_Mg_ha.toFixed(1)} Mg/ha`],
+    ['Mean CO₂ 2023',    `${p.mean_co2_2023_Mg_ha.toFixed(1)} Mg/ha`],
+    ['Total CO₂ 2023',   fmt.mg(p.total_co2_2023_Mg)]
+  ]);
 }
